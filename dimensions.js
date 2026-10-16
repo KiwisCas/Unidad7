@@ -167,13 +167,13 @@ function lemni(){ let d=''; for(let i=0;i<=120;i++){ const a=i/120*TAU, den=1+Ma
 export const _sims = MAKE;
 
 /* ───────────── Anfitrión: portales → ventanas → fusión ───────────── */
-export function createDimensions({state, beginReturn, getWord}){
+export function createDimensions({state, beginReturn, getWord, getLetters, setCalm}){
   const dpr=Math.min(devicePixelRatio||1,1.5), $=(tag,id,cls)=>{ const e=document.createElement(tag); if(id) e.id=id; if(cls) e.className=cls; return e; };
-  const links=$('canvas','dimLinks'), root=$('div','dims'), scrim=$('div','dimScrim'), logo=$('div','dimLogo'), mission=$('div','dimMission');
-mission.textContent='Creamos el futuro de las conexiones humanas';
+  const cue=$('canvas','dimCue'), links=$('canvas','dimLinks'), root=$('div','dims'), scrim=$('div','dimScrim'), logo=$('div','dimLogo'), mission=$('div','dimMission');
+mission.textContent='';
   logo.innerHTML=`<svg viewBox="-120 -70 240 140"><defs><linearGradient id="mgrad" x1="0" x2="1"><stop offset="0" stop-color="#0064E0"/><stop offset=".55" stop-color="#1877F2"/><stop offset="1" stop-color="#0082FB"/></linearGradient></defs><path d="${lemni()}" pathLength="1" fill="none" stroke="url(#mgrad)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  document.body.append(links,root,scrim,logo,mission);
-  const L=links.getContext('2d');
+  document.body.append(links,root,scrim,logo,mission,cue);
+  const L=links.getContext('2d'), C=cue.getContext('2d');
   const full=()=>({x:0,y:0,w:innerWidth,h:innerHeight});
   const SH=[ // x,y,w,h (fracción de pantalla), inclinación, radios [rx×4, ry×4]
     {x:.025,y:.05,w:.2,h:.44,rot:-3,rad:(w,h)=>[w/2,w/2,18,18,w/2,w/2,18,18]},                            // M · arco
@@ -193,10 +193,11 @@ mission.textContent='Creamos el futuro de las conexiones humanas';
 
   function layoutLogo(){ const w=Math.min(innerWidth*.2,280), h=w*140/240, wh=getWord().h, cy=innerHeight/2;
     logo.style.width=w+'px'; logo.style.height=h+'px'; logo.style.top=(cy-wh/2-h-innerHeight*.03)+'px'; mission.style.top=(cy+wh/2+innerHeight*.035)+'px'; }
-  function reset(){ for(const d of D){ d.mode='idle'; d.el.style.display='none'; d.inter=0; } pulses.length=0; fusing=fused=false; burst=-9; allT=0;
+  function reset(){ setCalm&&setCalm(false); ripples.length=0; for(const d of D){ d.mode='idle'; d.el.style.display='none'; d.inter=0; } pulses.length=0; fusing=fused=false; burst=-9; allT=0;
     logo.classList.remove('on'); mission.classList.remove('on'); }
   function canOpen(i){ return D[i].mode==='idle' && !fusing && !fused; }
-  function open(i){ if(!canOpen(i)) return false; const d=D[i]; d.mode='full'; d.vis=0; d.inter=0; d.a=0; d.el.style.display='block'; d.el.style.zIndex=3; return true; }
+  function open(i){ if(!canOpen(i)) return false; const p=getLetters()[i]; ripples.push({x:p.x,y:p.y,c:TH[i].col,r0:30,r1:Math.hypot(innerWidth,innerHeight)*.55,t0:now(),life:1.1,a:.6});
+    const d=D[i]; d.mode='full'; d.vis=0; d.inter=0; d.a=0; d.el.style.display='block'; d.el.style.zIndex=3; return true; }
   function dock(d){ d.mode='docking'; d.a=0; d.el.style.zIndex=1; beginReturn(); }
   function signal(d){ if(d.cool>0) return; d.cool=1.4; for(const o of D) if(o!==d&&o.mode==='docked') pulses.push({i:d.i,j:o.i,u:0}); }
   const inside=(d,x,y)=>{ const r=d.r; return x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h; };
@@ -233,8 +234,39 @@ mission.textContent='Creamos el futuro de las conexiones humanas';
       L.fillStyle=g; L.beginPath(); L.arc(q.x,q.y,14,0,TAU); L.fill(); }
     const bt=t-burst; if(bt>=0&&bt<1.6) D.forEach((d,i)=>{ L.strokeStyle=d.m.col; L.globalAlpha=1-bt/1.6; L.lineWidth=5*(1-bt/1.6)+1; L.beginPath(); L.arc(cen.x,cen.y,bt*(380+i*110),0,TAU); L.stroke(); }); L.globalAlpha=1;
   }
+  /* Guía visual sin texto: 4 puntos bajo la letra (uno por clic), anillos al pulsar y una demostración "toc-toc-toc-toc" cuando hay inactividad */
+  const ripples=[], ha=[0,0,0,0], loadT=now(); let prevCount=0, lastClickT=-9, popT=-9, demoT=0, prevDemo=0, prevPh=0, demoA=0;
+  function dots(p,wh,col,filled,al,hot){
+    const y=innerHeight/2+wh/2+wh*.24, sp=wh*.2, r=clamp(wh*.045,3,7), nt=now();
+    for(let k=0;k<4;k++){ const x=p.x+(k-1.5)*sp, on=k<filled; let s=1;
+      if(on&&k===filled-1) s=1+.7*Math.max(0,1-(nt-popT)/.28);
+      if(!on&&k===filled&&filled===3&&hot) s=1+.3*Math.sin(nt*9);
+      C.globalAlpha=al*(on?1:.6); C.fillStyle=col; C.strokeStyle=col; C.lineWidth=2; if(on){ C.shadowColor=col; C.shadowBlur=12; }
+      C.beginPath(); C.arc(x,y,r*s,0,TAU); on?C.fill():C.stroke(); C.shadowBlur=0; }
+    C.globalAlpha=1;
+  }
+  function drawCue(dt){
+    const W=innerWidth, H=innerHeight; if(cue.width!==Math.round(W*dpr)||cue.height!==Math.round(H*dpr)){ cue.width=Math.round(W*dpr); cue.height=Math.round(H*dpr); }
+    C.setTransform(dpr,0,0,dpr,0,0); C.clearRect(0,0,W,H);
+    const nowT=now(), lets=getLetters(), wh=getWord().h;
+    if(state.streakCount!==prevCount){ if(state.streakCount>prevCount&&state.streakLetter>=0){ const p=lets[state.streakLetter];
+        ripples.push({x:p.x,y:p.y,c:TH[state.streakLetter].col,r0:wh*.3,r1:wh*1.1,t0:nowT,life:.7}); lastClickT=popT=nowT; } prevCount=state.streakCount; }
+    for(let i=ripples.length-1;i>=0;i--){ const q=ripples[i], u=(nowT-q.t0)/q.life; if(u>=1){ ripples.splice(i,1); continue; }
+      C.globalAlpha=(1-u)*(q.a||.85); C.strokeStyle=q.c; C.lineWidth=4*(1-u)+1; C.beginPath(); C.arc(q.x,q.y,lerp(q.r0,q.r1,1-Math.pow(1-u,3)),0,TAU); C.stroke(); }
+    C.globalAlpha=1;
+    if(state.active!==-1||fusing||fused||D.some(d=>d.mode==='full'||d.mode==='closing')){ demoA=0; ha.fill(0); return; }
+    if(state.streakLetter>=0&&nowT-state.lastClick<1.9){ const i=state.streakLetter; dots(lets[i],wh,TH[i].col,state.streakCount,clamp((1.9-(nowT-state.lastClick))/.55,0,1),true); demoA=0; return; }
+    let hover=-1; if(P.has) lets.forEach((p,i)=>{ if(Math.abs(P.x-p.x)<wh*.6&&Math.abs(P.y-H/2)<wh*.62) hover=i; });
+    for(let i=0;i<4;i++){ ha[i]+=((i===hover&&canOpen(i)?1:0)-ha[i])*Math.min(1,dt*8); if(ha[i]>.02) dots(lets[i],wh,TH[i].col,0,ha[i]*.9,false); }
+    const idle=nowT-Math.max(lastClickT,loadT)>4&&hover<0; demoA+=((idle?1:0)-demoA)*Math.min(1,dt*(idle?2:10));
+    if(demoA>.02){ const op=[0,1,2,3].filter(canOpen); if(!op.length) return; demoT+=dt;
+      const per=3.8, i=op[Math.floor(demoT/per)%op.length], ph=demoT%per, cnt=ph<.3?0:Math.min(4,Math.floor((ph-.3)/.4)+1);
+      if(ph<prevPh) prevDemo=0; prevPh=ph;
+      if(cnt>prevDemo){ prevDemo=cnt; popT=nowT; ripples.push({x:lets[i].x,y:lets[i].y,c:TH[i].col,r0:wh*.3,r1:wh*(cnt===4?1.4:.9),t0:nowT,life:.7,a:.5*demoA}); }
+      dots(lets[i],wh,TH[i].col,cnt,demoA*clamp((3.1-ph)/.6,0,1)*clamp(ph/.2,0,1),false); }
+  }
   function update(dt){
-    t+=dt; const nowT=now(), docked=D.filter(d=>d.mode==='docked'||d.mode==='docking').length, busy=D.some(d=>d.mode!=='idle')||t-burst<1.7;
+    t+=dt; drawCue(dt); const nowT=now(), docked=D.filter(d=>d.mode==='docked'||d.mode==='docking').length, busy=D.some(d=>d.mode!=='idle')||t-burst<1.7;
     links.style.display=busy?'block':'none'; if(!busy){ scrim.classList.remove('on'); return; }
     // balanceo: cada ventana se inclina hacia sus vecinas
     const dk=D.filter(d=>d.mode==='docked'), sway=D.map(d=>{ const o=dk.filter(q=>q!==d); if(!o.length||d.mode!=='docked') return [0,0];
@@ -256,7 +288,7 @@ mission.textContent='Creamos el futuro de las conexiones humanas';
       const m={x:(x-d.r.x)/d.r.w,y:(y-d.r.y)/d.r.h,in:true}; d.sim.click(m); d.lastClick=nowT; if(d.mode==='docked'){ d.energy=Math.max(d.energy,.7); signal(d); } } }
     // vida propia entre ventanas + fusión cuando están las 4
     if(dk.length>=2){ autoT-=dt; if(autoT<=0){ autoT=rr(2,3.6); const a=dk[(Math.random()*dk.length)|0], b=dk.filter(q=>q!==a)[(Math.random()*(dk.length-1))|0]; pulses.push({i:a.i,j:b.i,u:0}); } }
-    if(dk.length===4&&!fusing){ allT+=dt; if(allT>3.8){ fusing=true; for(const d of D){ d.mode='fusing'; d.a=0; } } } else if(!fusing) allT=0;
+    if(dk.length===4&&!fusing){ allT+=dt; if(allT>3.8){ fusing=true; setCalm&&setCalm(true); for(const d of D){ d.mode='fusing'; d.a=0; } } } else if(!fusing) allT=0;
     if(fusing&&!fused&&D.every(d=>d.a>=1)){ fused=true; fusing=false; for(const d of D){ d.mode='idle'; d.el.style.display='none'; } burst=t; layoutLogo(); logo.classList.add('on'); mission.classList.add('on'); }
     scrim.classList.toggle('on',!!fd&&fd.vis>.3);
     drawLinks(dt);

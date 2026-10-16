@@ -17,3 +17,4 @@ html,body{margin:0;height:100%;background:#fff;overflow:hidden}
   #dimLogo.on path{stroke-dashoffset:0;transition:stroke-dashoffset 2.2s cubic-bezier(.6,0,.2,1)}
   #dimMission{font:600 clamp(14px,2.1vw,30px)/1.2 Inter,"Helvetica Neue",Arial,sans-serif;color:#111;letter-spacing:-.01em;white-space:nowrap;opacity:0;transition:opacity 1.4s .9s}
   #dimMission.on{opacity:1}
+  #dimCue{z-index:6;pointer-events:none}

@@ -68,6 +68,8 @@ async function start(){
   const initialBackground = new THREE.Color(0xffffff);
   const targetBackground = new THREE.Color(0xffffff);
   const bgCol = new THREE.Color(0xffffff);
+  let calm = false, calmK = 1; // calma: tras la fusión nada nuevo nace y lo existente se desvanece escalonadamente
+  function setCalm(v){ calm = v; wake = true; if(v) for(const o of objs) if(o.alive && !o.dying) o.dieAt = t + Math.random()*1.6; }
   const pm = new THREE.PMREMGenerator(renderer);
   scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
@@ -283,7 +285,8 @@ async function start(){
     scene.add(L.shadow, L.mesh);
   }
   const letterMeshes = letters.map(l=>l.mesh);
-  const dims = createDimensions({ state:universeState, beginReturn, getWord:()=>({ h:F*0.727*S/(2*view.halfH)*innerHeight }) });
+  const dims = createDimensions({ state:universeState, beginReturn, setCalm, getWord:()=>({ h:F*0.727*S/(2*view.halfH)*innerHeight }),
+    getLetters:()=>letters.map(L=>({ x:innerWidth/2*(1+L.mesh.position.x/view.halfW), y:innerHeight/2*(1-L.mesh.position.y/view.halfH) })) });
 
   /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ FÃ­sica (Rapier) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   const world = new RAPIER.World({x:0,y:0,z:0}); world.timestep = STEP;
@@ -301,8 +304,9 @@ async function start(){
       const p = L.body.translation();
       const limitX = Math.max(0, view.halfW - L.ihx - 0.2);
       const limitY = Math.max(0, view.halfH - L.ihy - 0.2);
-      const x = clamp(p.x, -limitX, limitX);
-      const y = clamp(p.y, -limitY, limitY);
+      const R = 0.2; // las letras nunca se alejan de su sitio: ni objetos ni cursor pueden arrastrarlas
+      const x = clamp(clamp(p.x, -limitX, limitX), L.cx-R, L.cx+R);
+      const y = clamp(clamp(p.y, -limitY, limitY), -R, R);
       const z = clamp(p.z, -0.25, 1.1);
       if(x === p.x && y === p.y && z === p.z) continue;
       const v = L.body.linvel();
@@ -546,7 +550,7 @@ async function start(){
     o.tx=clamp(L.cx+rnd(-1,1),-view.halfW+1,view.halfW-1); o.ty=(Math.random()<.5?1:-1)*rnd(1.7,2.2); o.tz=rnd(zr[0],zr[1]);
   }
   function spawn(o,L){
-    o.alive=true;o.dying=false;o.life=0;o.age=0;o.decay=0;o.glow=0;o.gr=o.gg=o.gb=1; o.edges.length=0;
+    o.alive=true;o.dying=false;o.dieAt=undefined;o.life=0;o.age=0;o.decay=0;o.glow=0;o.gr=o.gg=o.gb=1; o.edges.length=0;
     pickTarget(o,L);
     const n=L.nodes[(Math.random()*L.nodes.length)|0];
     o.body.setEnabled(true); o.body.setTranslation({x:px[n],y:py[n],z:0.1},true);
@@ -579,7 +583,7 @@ async function start(){
     const {pos,col,al}=curveSys; let v=0;
     for(const c of curves){
       if(!c.on){ continue; }
-      c.age+=h; if(c.age>c.ttl||letters[1].heat<.2) c.dying=true;
+      c.age+=h; if(c.age>c.ttl||letters[1].heat<.2||calm) c.dying=true;
       c.life = c.dying ? c.life-h*1.1 : Math.min(1,c.life+h*1.8);
       if(c.life<=0&&c.dying){ c.on=false; continue; }
       const A=c.a,B=c.b, dx=px[B]-px[A],dy=py[B]-py[A],dz=pz[B]-pz[A], len=Math.hypot(dx,dy,dz)+1e-3;
@@ -658,6 +662,7 @@ async function start(){
     }
     const transitionStep = h/UNIVERSE.transitionDuration;
     universeState.progress += (universeState.target-universeState.progress) * Math.min(1, transitionStep*3);
+    calmK += ((calm?0:1)-calmK)*Math.min(1,h*1.2);
     if(universeState.target === 0 && universeState.active !== -1 && universeState.progress < .01){
       // retorno suave: nada se borra de golpe, los objetos, pulsos y calor se apagan solos
       universeState.progress = 0;
@@ -684,9 +689,9 @@ async function start(){
       let dmin=1e9; if(cur.active) for(const n of L.nodes){ const dx=px[n]-cur.x,dy=py[n]-cur.y,d=dx*dx+dy*dy; if(d<dmin)dmin=d; }
       const raw=cur.active?Math.exp(-dmin/(2*.55*.55)):0;
       L.hover+=(raw-L.hover)*(1-Math.exp(-h*6));
-      const cap=.5+.28*Math.min(1,L.energy);
+      const cap=(.5+.28*Math.min(1,L.energy))*calmK;
       if(L.heat<cap) L.heat=Math.min(cap,L.heat+h*L.hover*(.35+.16*Math.min(cur.speed,7)));
-      L.energy=Math.min(2.5,L.energy+h*L.hover*cur.speed*.012);
+      L.energy=Math.min(2.5,L.energy+h*L.hover*cur.speed*.012*calmK);
       L.heat*=Math.exp(-h/1.7); L.energy*=Math.exp(-h/9);
       if(L.heat<.004) L.heat=0; if(L.energy<.004) L.energy=0;
       if(universeState.active !== -1){
@@ -708,17 +713,18 @@ async function start(){
       L.body.applyImpulse({x:ax*m*h,y:ay*m*h,z:az*m*h},true);
       const sp=Math.hypot(v.x,v.y,v.z); if(sp>3) L.body.setLinvel({x:v.x/sp*3,y:v.y/sp*3,z:v.z/sp*3},true);
       // seÃ±al espontÃ¡nea al explorar
-      if(L.heat>.42&&L.hover>.45&&cur.speed>1.5&&t>L.nextSig){ const [n]=nearest(L,cur.x,cur.y); fire(L,n,.5+.15*Math.min(1,L.energy)); L.nextSig=t+.9; }
+      if(calmK>.3&&L.heat>.42&&L.hover>.45&&cur.speed>1.5&&t>L.nextSig){ const [n]=nearest(L,cur.x,cur.y); fire(L,n,.5+.15*Math.min(1,L.energy)); L.nextSig=t+.9; }
       // apariciÃ³n de elementos secundarios
-      if(L.pools.length&&L.heat*(1+.35*L.energy)>.58&&t>L.nextSpawn){
+      if(calmK>.3&&L.pools.length&&L.heat*(1+.35*L.energy)>.58&&t>L.nextSpawn){
         const free=L.pools.filter(o=>!o.alive); if(free.length) spawn(free[(Math.random()*free.length)|0],L);
         L.nextSpawn=t+.22+Math.random()*.35;
       }
-      if(L.i===1&&L.heat>.45&&Math.random()<h*3) spawnCurve();
+      if(calmK>.3&&L.i===1&&L.heat>.45&&Math.random()<h*3) spawnCurve();
     }
 
     // objetos
     for(const o of objs){ if(!o.alive) continue; const L=letters[o.host];
+      if(calm&&!o.dying&&t>=o.dieAt) o.dying=true;
       if(!o.dying){ o.life=Math.min(1,o.life+h*1.6); o.age+=h; if(L.heat<.24)o.decay+=h; else o.decay=Math.max(0,o.decay-h*.7); if(o.decay>1.2)o.dying=true; }
       else { o.life-=h*1.8; if(o.life<=0){ despawn(o); continue; } }
       const tx=o.tx+Math.sin(t*.55+o.ph)*.22, ty=o.ty+Math.cos(t*.47+o.ph*1.3)*.18, tz=o.tz+Math.sin(t*.4+o.ph*2)*.2;
